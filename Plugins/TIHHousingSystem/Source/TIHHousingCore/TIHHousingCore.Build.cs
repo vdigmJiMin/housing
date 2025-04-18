@@ -10,6 +10,7 @@ public class TIHHousingCore : ModuleRules
             new string[]
             {
                 "Core",
+                "GameplayTags"
             }
         );
 

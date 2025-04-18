@@ -3,12 +3,9 @@
 
 #include "TIHHsCore.h"
 
-
-void UTIHHsMouseSubSystem::OnWorldBeginPlay(UWorld& InWorld)
-{
-	Super::OnWorldBeginPlay(InWorld);
-}
-
+bool UTIHHsGlobalConfigure::gForceDisable = false;
+bool UTIHHsGlobalConfigure::gTickPauseEnable = false;
+bool UTIHHsGlobalConfigure::gTickRuntimeActive = true;
 
 
 // Sets default values
@@ -28,6 +25,25 @@ void ATIHHsTestActor::BeginPlay()
 // Called every frame
 void ATIHHsTestActor::Tick(float DeltaTime)
 {
+
 	Super::Tick(DeltaTime);
+}
+
+void ATIHHsTestActor::OnMouseActionHoverEnter()
+{
+	
+	UE_LOG(LogTemp, Warning, TEXT("OnMouseActionHoverEnter}}}}}}}}}}"));
+}
+
+void ATIHHsTestActor::OnMouseActionHovering()
+{
+	
+	UE_LOG(LogTemp, Warning, TEXT("OnMouseActionHovering}}}}}}}}}}"));
+}
+
+void ATIHHsTestActor::OnMouseActionHoverExit()
+{
+	
+	UE_LOG(LogTemp, Warning, TEXT("OnMouseActionHoverExit}}}}}}}}}}"));
 }
 
