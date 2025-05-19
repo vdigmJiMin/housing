@@ -3,6 +3,7 @@
 
 #include "TIHTapActionSubSystem.h"
 #include "TIHHsCore.h"
+#include "GameFramework/InputDeviceSubsystem.h"
 
 FTimerManager* UTIHHsTapActionPoint::gTimerManager = nullptr;
 UTIHHsTapActionSubSystem* UTIHHsTapActionPoint::gMouseSubSystem = nullptr;
@@ -13,26 +14,29 @@ void UTIHHsTapActionPoint::OnDownAction()
 {
 	if (gTimerManager->IsTimerActive(mMouseDoubleTapTimerHandle))
 	{
+		mDoubleTapState  = true;	//	ClearTimer를 호출하면 expired가 호출되어서 해줘야함.
 		gTimerManager->ClearTimer(mMouseDoubleTapTimerHandle);
 		OnBroadcastDoubleTap();
 	}
 	else
 	{
+		mHoldState = true;
+		mDoubleTapState = false;
 		gTimerManager->SetTimer(mMouseDoubleTapTimerHandle,this,&UTIHHsTapActionPoint::OnDoubleTapTimerExpired,mDoubleTapThresholdTime,false);
-		gTimerManager->SetTimer(mMouseHoldStartTimerHandle,this,&UTIHHsTapActionPoint::OnBroadcastHoldStart,mHoldThresholdTime,false);
 	}
 }
 
 void UTIHHsTapActionPoint::OnUpAction()
 {
-	if (gTimerManager->IsTimerActive(mMouseHoldStartTimerHandle))
-	{
-		gTimerManager->ClearTimer(mMouseHoldStartTimerHandle);
-	}
-	else if (gTimerManager->IsTimerActive(mMouseHoldingTimerHandle))
+	//	holding 중
+	if (gTimerManager->IsTimerActive(mMouseHoldingTimerHandle))
 	{
 		gTimerManager->ClearTimer(mMouseHoldingTimerHandle);
 		OnBroadcastHoldEnd();
+	}
+	else if (gTimerManager->IsTimerActive(mMouseDoubleTapTimerHandle))//	아직 더블 평가중
+	{
+		mHoldState = false;
 	}
 }
 
@@ -43,9 +47,13 @@ void UTIHHsTapActionPoint::OnBroadcastTap()
 
 void UTIHHsTapActionPoint::OnDoubleTapTimerExpired()
 {
-	if (not gTimerManager->IsTimerActive(mMouseHoldStartTimerHandle))
+	if (not mHoldState && not mDoubleTapState)
 	{
 		OnBroadcastTap();
+	}
+	else
+	{
+		OnBroadcastHoldStart();
 	}
 }
 
@@ -287,7 +295,7 @@ void UTIHHsTapActionSubSystem::OnDonwActionByControlPoint(FString inControlPoint
 {
 	if (mMouseSubsystemActor->mControlPointMap.Contains(inControlPointName))
 	{
-		mMouseSubsystemActor->mControlPointMap[inControlPointName]->OnDownAction();		
+		mMouseSubsystemActor->mControlPointMap[inControlPointName]->OnDownAction();
 	}
 	
 }
@@ -304,6 +312,7 @@ void UTIHHsTapActionSubSystem::OnMouseTraceAuto(float inInterval)
 {
 	OnMoveTrack();
 	mWorld->GetTimerManager().SetTimer(mMouseTraceTimerHandle,this,&UTIHHsTapActionSubSystem::OffMoveTrack,inInterval);
+	
 }
 
 void UTIHHsTapActionSubSystem::OnMoveTrack()
@@ -337,23 +346,23 @@ void UTIHHsTapActionSubSystem::Tick(float DeltaTime)
 	gMouseTrackTickTime = 0.0f;
 	
 	FTIHHsMouseActionNode& prevHoverNode = GetPrevHoverNode();
-	FTIHHsMouseActionNode& currHoverNode = GetCurrHoverNode();
-	
-	currHoverNode.ActionType = 3;
-	currHoverNode.NodeTick = gMouseSubSystemTickCount;
-	currHoverNode.NodeTime = mWorld->GetTimeSeconds();
+	FTIHHsMouseActionNode& targetHoverNode = GetCurrHoverNode();
 	
 	bool mouseInGame = mPlayerController->GetMousePosition(
-		currHoverNode.MouseScreenPosition.X,currHoverNode.MouseScreenPosition.Y);
+		targetHoverNode.MouseScreenPosition.X,targetHoverNode.MouseScreenPosition.Y);
 	
 	FVector worldLocation;
 	FVector worldDirection;
 	
-	if (mPlayerController->DeprojectScreenPositionToWorld(currHoverNode.MouseScreenPosition.X,currHoverNode.MouseScreenPosition.Y,worldLocation,worldDirection))
+	if (mPlayerController->DeprojectScreenPositionToWorld(targetHoverNode.MouseScreenPosition.X,targetHoverNode.MouseScreenPosition.Y,worldLocation,worldDirection))
 	{
-		if (not FMath::IsNearlyEqual(currHoverNode.MouseScreenPosition.X,prevHoverNode.MouseScreenPosition.X,mMouseMoveSensitive) ||
-			not FMath::IsNearlyEqual(currHoverNode.MouseScreenPosition.Y,prevHoverNode.MouseScreenPosition.Y,mMouseMoveSensitive))
+		if (not FMath::IsNearlyEqual(targetHoverNode.MouseScreenPosition.X,prevHoverNode.MouseScreenPosition.X,mMouseMoveSensitive) ||
+			not FMath::IsNearlyEqual(targetHoverNode.MouseScreenPosition.Y,prevHoverNode.MouseScreenPosition.Y,mMouseMoveSensitive))
 		{
+			targetHoverNode.ActionType = 3;
+			targetHoverNode.NodeTick = gMouseSubSystemTickCount;
+			targetHoverNode.NodeTime = mWorld->GetTimeSeconds();
+			
 			ProgressHoverNode();
 			
 			AActor* prevHitActor = mHitResult.GetActor();
@@ -367,9 +376,10 @@ void UTIHHsTapActionSubSystem::Tick(float DeltaTime)
 			))
 			{
 				currHitActor = mHitResult.GetActor();
-				currHoverNode.MouseWorldPosition = mHitResult.Location;
+				targetHoverNode.MouseWorldPosition = mHitResult.Location;
 			}
-
+			
+			
 			// conditions
 			if (prevHitActor == nullptr)
 			{

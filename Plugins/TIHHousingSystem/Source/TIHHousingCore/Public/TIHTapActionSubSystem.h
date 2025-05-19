@@ -61,6 +61,64 @@ struct FTIHHsMouseActionNode
 		return *this;
 	}
 };
+/*
+ *	move
+ *		키보드
+ *			w,a,s,d,q,e
+ *		마우스
+ *			휠 업,다운,셀렉
+ *	기타기능
+ *		키보드
+ *	tap: 물체 상호작용
+ *	doubleTap:
+ *		select:
+ *		menu:
+ *	hover
+ *	hold
+ *		holdStart
+ *		holding
+ *		holdEnd
+ * 인테리어모드
+ *	
+ * 빌드모드
+*	wasdqe: 카메라 이동
+ *	tap: 물체 상호작용
+ *	doubleTap:
+ *	hover
+ *	hold
+ *		holdStart
+ *		holding
+ *		holdEnd
+ * 뷰모드
+ *	wasdqe: 카메라 이동
+ *	tap: 물체 상호작용
+ *	doubleTap:
+ *		select:
+ *		menu:
+ *	hover
+ *	hold
+ *		holdStart
+ *		holding
+ *		holdEnd
+ *
+ * 
+ * 
+ */
+UCLASS()
+class ATIHHsTapFocusTarget : public AActor
+{
+	GENERATED_BODY()
+	friend class UTIHHsTapActionSubSystem;
+public:
+	virtual void GrapObject() {};
+
+	//virtual void FocusOn();
+private:
+	UPROPERTY()
+	FHitResult mHitResult;
+};
+
+
 using TIHHsControlPointKeyType = FString;
 UCLASS(Blueprintable, BlueprintType)
 class UTIHHsTapActionPoint : public UObject
@@ -92,6 +150,16 @@ public:
 	void OnBroadcastHoldEnd();
 	void OnBroadcastDoubleTap();
 	void ClearTimerHandles();
+
+	bool GetHoldState() const
+	{
+		return mHoldState;
+	}
+	void SetHoldState(bool inHoldState)
+	{
+		mHoldState = inHoldState;
+	}
+	
 	virtual void BeginDestroy() override;
 
 private:
@@ -99,6 +167,8 @@ private:
 	
 	float mDoubleTapThresholdTime;
 	float mHoldThresholdTime;
+	bool mHoldState;
+	bool mDoubleTapState;
 	
 	FTimerHandle mMouseDoubleTapTimerHandle;
 	FTimerHandle mMouseHoldStartTimerHandle;
@@ -131,14 +201,14 @@ public:
 	virtual bool IsTickableWhenPaused() const override;
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;	//	UWorld::BeginPlay()에서 호출된다.
 	
-private:
-	bool IsTickEnable() const;
-
-public:
 	virtual TStatId GetStatId() const override
 	{
 		RETURN_QUICK_DECLARE_CYCLE_STAT(UTIHHsMouseSubSystem, STATGROUP_Tickables);
 	}
+private:
+	bool IsTickEnable() const;
+
+public:
 	//	원래는 EnhancedInput 에서 호출해줘야함. 즉 이건 호출함수임.
 	UFUNCTION(BlueprintCallable, Category = "TIHHsMouseSubSystem|Action")
 	void OnDownAction();
@@ -265,6 +335,9 @@ private:
 	APlayerController* mPlayerController;
 	UWorld* mWorld;
 	FHitResult mHitResult;
+
+	UPROPERTY()
+	TObjectPtr<ATIHHsTapFocusTarget> mFocusActor;
 };
 
 
