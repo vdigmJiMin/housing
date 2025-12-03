@@ -102,7 +102,14 @@ bool UTHsNode::UpdateNodeState()
 		 * 복사된건지 아닌지는
 		 */
 	}
-	
+	if (IsAllowedBetweenParentAndChild(ParentNode.Get(),this))
+	{
+		NodeState->IsDirty = false;
+		if (ATHsNodeManager* nodeMgr = TryGetOwnerNodeManager())
+		{
+			 NodeState->IsLinkedInstance = nodeMgr->FindLinkedObjectByNode(this) != nullptr ?	 	true :	false;
+		}
+	}
     TravelChildNodes([weakThis = TWeakObjectPtr<UTHsNode>(this)](UTHsNode* childNodePtr)
 	{
 	    if (childNodePtr)
@@ -211,21 +218,39 @@ UTHsNode* UTHsNodeProxy_MakeRuntimeNode::MakeNodeFromCatalogNode(UTHsNode* InCat
 
 void UTHsNodeTree::UpdateTree()
 {
-	
+	/*
+	 * TODO: NodeTree 의 상태를 갱신하는 작업
+	 * - 루트 노드부터 시작해서 전체 노드를 순회하면서 상태를 갱신
+	 * - 노드의 상태에 따라 트리의 메타데이터(예: 노드 수, 깊이 등)를 업데이트
+	 * - 무조건 유효성 검사
+	 * - 트리 상태 설정
+	 */
 }
 
 TScriptInterface<ITHsNodeTrait> UTHsNodeForestProbe::ProcessProbe(TScriptInterface<ITHsNodeTrait> nodeTrait)
 {
+	/*
+	* record : try check nodeTrait is UTHsNodeForest
+	* NodeLibrary, nodeTrait
+	*/
 	if (NodeLibrary.IsValid() &&
 		nodeTrait!= nullptr &&
 		nodeTrait.GetObject()->IsA(UTHsNodeForest::StaticClass()))
 	{
+		/*
+		* record : try cast nodeTrait to UTHsNodeForest and create new UTHsNodeForest
+		* srcNodeForest, dstNodeForest
+		*/
 		UTHsNodeForest* srcNodeForest = Cast<UTHsNodeForest>(nodeTrait.GetObject());
 		/* New Node Forest  */
 		UTHsNodeForest* dstNodeForest = NewObject<UTHsNodeForest>(NodeLibrary.Get(),nodeTrait.GetObject()->GetClass());
 
 		if (dstNodeForest)
 		{
+			/*
+			 * record : try clone forest properties from src to dst
+			 * OwningLibrary, Environment, CustomForestProbeClass
+			 */
 			dstNodeForest->OwningLibrary = NodeLibrary.Get();
 			dstNodeForest->Environment = srcNodeForest->Environment;
 			dstNodeForest->CustomForestProbeClass = srcNodeForest->CustomForestProbeClass;
@@ -270,9 +295,43 @@ UTHsNodeCatalogDataAsset::UTHsNodeCatalogDataAsset()
 {
 	TOCSlotName = TEXT("CatalogTOC");
 	TOCUserIndex = 0;
+	DefaultWorldNodeLibraryClass = UTHsNodeWorldLibrary::StaticClass();
 	DefaultNodeFactoryClass = UTHsNodeFactory::StaticClass();
 }
 
+
+void UTHsNodeFactory::CloneForestFromLibrary(UTHsNodeLibrary* srcLibrary, UTHsNodeLibrary* dstLibrary)
+{
+	/*
+	* record: try clone forest from source library to destination library
+	* srcLibrary, dstLibrary
+	*/
+	if (srcLibrary &&
+	srcLibrary->DbcValidCatalogNodeLibrary() &&
+	dstLibrary->DbcCopyableNodeLibrary())
+	{
+		if (UTHsNodeWorldLibrary* srcWorldLibrary = Cast<UTHsNodeWorldLibrary>(srcLibrary))
+		{
+			/*
+			* record : success clone forest from source library to destination library
+			* srcLibrary, dstLibrary
+			*/
+			UTHsNodeForest* srcForestPtr = srcWorldLibrary->NodeForest;
+			UTHsNodeFactory* nodeFactory = this;
+			if (srcForestPtr != nullptr && nodeFactory != nullptr)
+			{
+				/*
+				 *	record: try clone forest from source forest to destination library
+				 *	srcForestPtr, dstLibrary
+				 */
+				if (UTHsNodeForest* newForest = nodeFactory->CloneForestForRuntime(srcForestPtr,dstLibrary))
+				{
+					dstLibrary->SetForestToLibrary(newForest);
+				}
+			}
+		}
+	}
+}
 
 UTHsNodeForest* UTHsNodeFactory::CloneForestForRuntime(
 	UTHsNodeForest* sourceNodeForest,UTHsNodeLibrary* ownerLibrary)
@@ -280,6 +339,10 @@ UTHsNodeForest* UTHsNodeFactory::CloneForestForRuntime(
 	UTHsNodeForest* result = nullptr;
 	if (sourceNodeForest != nullptr && ownerLibrary != nullptr)
 	{
+		/*
+		* record : must get custom probe class from source
+		* probeCls, 
+		*/
 		UClass* probeCls = sourceNodeForest->CustomForestProbeClass;
 		
 		if (probeCls == nullptr)
@@ -287,7 +350,10 @@ UTHsNodeForest* UTHsNodeFactory::CloneForestForRuntime(
 			//	default forest probe
 			probeCls = UTHsNodeForestProbe::StaticClass();
 		}
-		
+		/*
+		* record : must process probe with custom probe class from source
+		* probeCls, ownerLibrary
+		*/
 		if (UTHsNodeProbe* customProbe = NewObject<UTHsNodeProbe>(ownerLibrary,probeCls))
 		{
 			customProbe->SetupProbeContext(	
@@ -295,8 +361,9 @@ UTHsNodeForest* UTHsNodeFactory::CloneForestForRuntime(
 			ownerLibrary->OwningNodeManager.Get(),
 			nullptr,
 			nullptr,
-			ownerLibrary);
-
+			ownerLibrary
+			);
+			
 			TScriptInterface<ITHsNodeTrait> probeResult = customProbe->ProcessProbe(sourceNodeForest);
 		
 			if (probeResult.GetObject() != nullptr)
@@ -387,22 +454,87 @@ void UTHsNodeFactory::CloneChildrenForRuntime(TArray<TObjectPtr<UTHsNode>>& sour
 	}
 }
 
-void ATHsNodeManager::LoadUserSavedData()
+void ATHsNodeManager::CheckUserFirstTOC()
 {
-	if (NodeCatalogDataAsset)
+	if (not UGameplayStatics::DoesSaveGameExist(NodeCatalogDataAsset->TOCSlotName, NodeCatalogDataAsset->TOCUserIndex))
 	{
+		UTHsNodeSavedTOC* firstTOC = nullptr;
+		if (NodeCatalogDataAsset->UseIfFirstTOC && NodeCatalogDataAsset->FirstTOC != nullptr)
+		{
+			firstTOC = NodeCatalogDataAsset->FirstTOC;
+		}
+		else
+		{
+			firstTOC = NewObject<UTHsNodeSavedTOC>(this, UTHsNodeSavedTOC::StaticClass());
+		}
+		UGameplayStatics::SaveGameToSlot(firstTOC, NodeCatalogDataAsset->TOCSlotName, NodeCatalogDataAsset->TOCUserIndex);
+	}
+}
+
+void ATHsNodeManager::LoadUserTOCSavedData()
+{
+	if (DbcReadyToTocSetUp())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ATHsNodeManager::LoadUserTOCSavedData"));
+		CheckUserFirstTOC();
+		
 		if (USaveGame* toc= UGameplayStatics::LoadGameFromSlot(NodeCatalogDataAsset->TOCSlotName, NodeCatalogDataAsset->TOCUserIndex))
 		{
+			UE_LOG(LogTemp, Warning, TEXT("ATHsNodeManager::LoadUserTOCSavedData : Load Success"));
 			if (UTHsNodeSavedTOC* userSavedList = Cast<UTHsNodeSavedTOC>(toc))
 			{
+				UE_LOG(LogTemp, Warning, TEXT("ATHsNodeManager::LoadUserTOCSavedData : Cast Success"));
 				SavedTOC = userSavedList;
-				OnInputModal.Broadcast(this);
 				/*
-				 *	pending:
-				 *		OnAcceptInputModal || OnCancelInputModal
-				 *		OnAcceptInputModal: 
+				 * Trigger Input Modal for TOC Selection
 				 */
+				OnInputModal.Broadcast(this);
 			}
+		}
+	}
+}
+
+void ATHsNodeManager::LoadNodeCatalogDataAsset(const FString& assetPath)
+{
+	if (NodeCatalogDataAsset == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ATHsNodeManager::LoadNodeCatalogDataAsset : %s"), *assetPath);
+		NodeCatalogDataAsset = LoadObject<UTHsNodeCatalogDataAsset>(nullptr,*assetPath );
+		//	GC대상인지 확인해보기
+	}
+}
+
+void ATHsNodeManager::LoadNodeLibraries()
+{
+	if (NodeCatalogDataAsset )
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ATHsNodeManager::LoadNodeLibraries"));
+		UClass* nodeLibraryCls = NodeCatalogDataAsset->DefaultWorldNodeLibraryClass;
+		if (nodeLibraryCls == nullptr)
+		{
+			nodeLibraryCls = UTHsNodeWorldLibrary::StaticClass();
+		}
+		
+		if (WorldNodeLibrary == nullptr)
+		{
+			WorldNodeLibrary = NewObject<UTHsNodeWorldLibrary>(this,nodeLibraryCls);
+			WorldNodeLibrary->OwningNodeManager = this;
+			WorldNodeLibrary->bIsUserLibrary = true;
+		}
+		
+		nodeLibraryCls = nullptr;
+		
+		nodeLibraryCls = NodeCatalogDataAsset->DefaultUserNodeLibraryClass;
+		if (nodeLibraryCls == nullptr)
+		{
+			nodeLibraryCls = UTHsNodeLibrary::StaticClass();
+		}
+
+		if (UserNodeLibrary == nullptr)
+		{
+			UserNodeLibrary = NewObject<UTHsNodeLibrary>(this,nodeLibraryCls);
+			UserNodeLibrary->OwningNodeManager = this;
+			UserNodeLibrary->bIsUserLibrary = true;
 		}
 	}
 }
@@ -413,18 +545,14 @@ void ATHsNodeManager::BeginPlay()
 
 	UE_LOG(LogTemp, Warning, TEXT("ATHsNodeManager::BeginPlay"));
 
-	if (NodeCatalogDataAsset == nullptr)
-	{
-		NodeCatalogDataAsset = LoadObject<UTHsNodeCatalogDataAsset>(nullptr, TEXT("/Script/TIHHousingCore.THsNodeCatalogDataAsset'/Game/NodeTest/NodeCatalogDataAsset0.NodeCatalogDataAsset0'"));
-		//	GC대상인지 확인해보기
-	}
-	/*
-	 * 데이터 에셋이 완료되면 여기에서 dstLibrary 를 초기화 해야함.
-	 */
-	WorldNodeLibrary->OwningNodeManager = this;
-	WorldNodeLibrary->bIsUserLibrary = true;
+	LoadNodeCatalogDataAsset(TEXT("/Script/TIHHousingCore.THsNodeCatalogDataAsset'/Game/NodeTest/NodeCatalogDataAsset0.NodeCatalogDataAsset0'"));
+
+	LoadNodeLibraries();
 	
-	LoadUserSavedData();
+	if (DbcReadyToTocSetUp() && NodeCatalogDataAsset->UseAutoStartUpLoadUserTOCSavedData)
+	{
+		LoadUserTOCSavedData();
+	}
 }
 
 ATHsNodeManager::ATHsNodeManager()
@@ -442,27 +570,22 @@ void ATHsNodeManager::OnLoadAcceptInputModal(int32 savedMataDataIndex)
 		{
 			SavedTOC->CurrentLibraryIndex = savedMataDataIndex;
 			CurrentWorldLibraryMetaData = SavedTOC->LibraryMetaDatas[savedMataDataIndex];
-			//UGameplayStatics::AsyncLoadGameFromSlot(CurrentWorldLibraryMetaData.SlotName, CurrentWorldLibraryMetaData.UserIndex);
+		
 			const FString slotName = CurrentWorldLibraryMetaData.SlotName;
 			const int32 userIndex = CurrentWorldLibraryMetaData.UserIndex;
-			
+			/*
+			 * record: try async load user library from slot
+			 * slotName, userIndex
+			 */
 			UGameplayStatics::AsyncLoadGameFromSlot(slotName, userIndex,
 				FAsyncLoadGameFromSlotDelegate::CreateWeakLambda(
 					this,
-					[weakThis = TWeakObjectPtr<ATHsNodeManager>(this),slotName,userIndex]
+					[weakMgrThis = TWeakObjectPtr<ATHsNodeManager>(this),slotName,userIndex]
 					(const FString& InSlotName, const int32 InUserIndex, USaveGame* LoadedGame)
 				{
-					if (IsInGameThread())
+					if (IsInGameThread() && weakMgrThis.IsValid())
 					{
-						if (weakThis.IsValid())
-						{
-							weakThis->SetLoadUserTOC(true);
-							if (UTHsNodeWorldLibrary* worldData = Cast<UTHsNodeWorldLibrary> (LoadedGame))
-							{
-								//weakThis->ReservedLibraryAsset = worldData;
-								weakThis->CloneForestFromReservedLibrary(worldData, weakThis->WorldNodeLibrary);
-							}
-						}
+						weakMgrThis->CloneLibraryFromSaveGame(LoadedGame);
 					}
 					else
 					{
@@ -487,81 +610,13 @@ void ATHsNodeManager::OnNewNodeSavedLibraryMetaData(UTexture2D* thumbnailImage,c
 {
 }
 
-void ATHsNodeManager::CloneForestFromReservedLibrary(UTHsNodeLibrary* srcLibrary, UTHsNodeLibrary* dstLibrary)
-{
-	//	state Loading
-	if (srcLibrary &&
-	srcLibrary->DbcValidCatalogNodeLibrary() &&
-	dstLibrary->DbcCopyableNodeLibrary())
-	{
-		if (UTHsNodeWorldLibrary* srcWorldLibrary = Cast<UTHsNodeWorldLibrary>(srcLibrary))
-		{
-			UTHsNodeForest* srcForestPtr = srcLibrary->NodeForest;
-			UTHsNodeFactory* nodeFactory = GetNodeFactory();
-			if (srcForestPtr != nullptr && nodeFactory != nullptr)
-			{
-				if (UTHsNodeForest* newForest = nodeFactory->CloneForestForRuntime(srcForestPtr,dstLibrary))
-				{
-					dstLibrary->SetForestToLibrary(newForest);
-				}
-			}
-
-			
-			TSharedPtr<TArray<UTHsNode*>> pendingResultNodes = MakeShared<TArray<UTHsNode*>>();
-			/*
-			 *	library
-			 *		forest : trees
-			 *			tree : nodes
-			 *
-			 * 
-			 */
-			const int32 batchSize = 16;
-			FTHsCoroutineWorker* coroutineWorker = 
-				new FTHsCoroutineWorker(
-					[
-						weakMgrThis = TWeakObjectPtr<ATHsNodeManager>(this),
-						weakSrcLibrary = TWeakObjectPtr<UTHsNodeWorldLibrary>(srcWorldLibrary),
-						weakDstLibrary = TWeakObjectPtr<UTHsNodeLibrary>(dstLibrary),
-						batchSize
-					](int32 perFrameCount, double TimeLimit)-> bool
-					{
-						const int32 startIdx = batchSize * perFrameCount;
-						bool isFinish = true;
-						if (weakMgrThis.IsValid() && weakSrcLibrary.IsValid())
-						{
-							UTHsNodeForest* srcForestPtr = weakSrcLibrary->NodeForest;
-							UTHsNodeFactory* nodeFactory = weakMgrThis->GetNodeFactory();
-							if (srcForestPtr != nullptr && nodeFactory != nullptr)
-							{
-								if (UTHsNodeForest* newForest = nodeFactory->CloneForestForRuntime(srcForestPtr,weakDstLibrary.Get()))
-								{
-									weakDstLibrary->SetForestToLibrary(newForest);
-									return true;
-								}
-								
-								//newForest->BatchingForeachNodeTreeByRange()
-							}
-						}
-						return false;
-					}, 0.005,TEXT("loading nodes from library"),
-					[weakThis = TWeakObjectPtr<ATHsNodeManager>(this)]
-					(const FTHsCoroutineWorker* worker)
-					{
-						if (weakThis.IsValid())
-						{
-							if (weakThis->CoroutineWorkers.Find(worker))
-							{
-								weakThis->CoroutineWorkers.Remove(worker);
-							}
-						}
-					});
-			CoroutineWorkers.Add(coroutineWorker);
-		}
-	}
-}
 
 UTHsNodeFactory* ATHsNodeManager::GetNodeFactory()
 {
+	/*
+	* record : must get node factory
+	* NodeFactory
+	*/
 	if (NodeFactory == nullptr)
 	{
 		NodeFactory = NewObject<UTHsNodeFactory>(this,
@@ -571,4 +626,29 @@ UTHsNodeFactory* ATHsNodeManager::GetNodeFactory()
 		 */
 	}
 	return NodeFactory;
+}
+
+void ATHsNodeManager::CloneLibraryFromSaveGame(USaveGame* saveGameData)
+{
+	if (saveGameData && WorldNodeLibrary->DbcCopyableNodeLibrary())
+	{
+		/*
+		 * record: success set load user toc true
+		 * slotName, userIndex
+		 */
+		SetLoadUserTOC(true);
+		/*
+		 * record: try clone forest from loaded user library to world library
+		 * slotName, userIndex
+		 */
+		if (UTHsNodeWorldLibrary* srcWorldLibrary = Cast<UTHsNodeWorldLibrary> (saveGameData))
+		{
+			/*
+			 * record: success load user library from slot
+			 * slotName, userIndex
+			 */
+			ReservedLibraryAsset = WorldNodeLibrary;
+			GetNodeFactory()->CloneForestFromLibrary(srcWorldLibrary, WorldNodeLibrary);
+		}
+	}
 }

@@ -112,6 +112,14 @@ public:
 	virtual UTHsNode* TryGetOwnerNode() const { return nullptr; };
 };
 
+USTRUCT()
+struct FTHsNodeRecordData
+{
+	GENERATED_BODY()
+
+	
+};
+
 USTRUCT(BlueprintType)
 struct FTHsNodeKey
 {
@@ -537,6 +545,14 @@ class UTHsNodeProbe : public UObject
 {
 	GENERATED_BODY()
 public:
+	/**
+	 * 
+	 * @param inNodeFactory 노드 처리를 위한 팩토리 인스턴스
+	 * @param inNodeManager 사용될 매니저
+	 * @param inNodeTree 연결될 노드트리
+	 * @param inNodeForest 연결될 노드포레스트
+	 * @param inNodeLibrary 연결될 노드라이브러리
+	 */
 	UFUNCTION(Category="NodeProbe", BlueprintCallable)
 	void SetupProbeContext(
 		UTHsNodeFactory* inNodeFactory,
@@ -959,10 +975,13 @@ public:
 	virtual ETHsNodeClassHierarchyType GetHierarchyType() const override final { return ETHsNodeClassHierarchyType::EForest; };
 
 	UFUNCTION(BlueprintCallable, Category="Trait")
-	virtual ETHsNodeClassContainerPolicy GetContainerPolicy() const override
+	virtual ETHsNodeClassContainerPolicy GetContainerPolicy() const override final
 	{
 		return ETHsNodeClassContainerPolicy::Collection;
 	}
+	UPROPERTY(Category= "NodeForest",SaveGame,
+		EditAnywhere,BlueprintReadWrite)
+	FName ForestName;
 	/*
 	 *	환경, 노드 트리들을 포함한다. 
 	 */
@@ -981,6 +1000,8 @@ public:
 	UPROPERTY(Category= "NodeForest",SaveGame,
 		EditAnywhere,BlueprintReadWrite,Instanced)
 	TArray<TObjectPtr<UTHsNodeTree>> NodeTrees;
+
+	
 
 	void TravelNodeTrees(TFunctionRef<void(UTHsNodeTree* srcNodeTreePtr)> InFunc)
 	{
@@ -1150,17 +1171,36 @@ public:
 			EditAnywhere,BlueprintReadWrite)
 	int32 TOCUserIndex;
 
-	UPROPERTY(Category="Catalog|Default",SaveGame,
+	UPROPERTY(Category="Catalog|Default|Class",SaveGame,
+			EditAnywhere,BlueprintReadWrite)
+	TSubclassOf<UTHsNodeWorldLibrary> DefaultWorldNodeLibraryClass;
+	UPROPERTY(Category="Catalog|Default|Class",SaveGame,
+			EditAnywhere,BlueprintReadWrite)
+	TSubclassOf<UTHsNodeLibrary> DefaultUserNodeLibraryClass;
+	
+	UPROPERTY(Category="Catalog|Default|Class",SaveGame,
 			EditAnywhere,BlueprintReadWrite)
 	TSubclassOf<UTHsNodeFactory> DefaultNodeFactoryClass;
 	
-	UPROPERTY(Category="Catalog|Default",SaveGame,
+	UPROPERTY(Category="Catalog|Data",SaveGame,
 			EditAnywhere,BlueprintReadWrite,Instanced)
 	TObjectPtr<UTHsNodeLibrary> DefaultWorldNodeLibrary;
 	
-	UPROPERTY(Category="Catalog|Default",SaveGame,
+	UPROPERTY(Category="Catalog|Data",SaveGame,
     		EditAnywhere,BlueprintReadWrite,Instanced)
 	TObjectPtr<UTHsNodeForest> CatalogNodeForest;
+	
+	UPROPERTY(Category="Catalog|Default|TOC",SaveGame,
+			EditAnywhere,BlueprintReadWrite)
+	bool UseIfFirstTOC;
+	UPROPERTY(Category="Catalog|Default|TOC",SaveGame,
+			EditAnywhere,BlueprintReadWrite,Instanced)
+	TObjectPtr<UTHsNodeSavedTOC> FirstTOC;
+	
+	UPROPERTY(Category="Catalog|Setup",SaveGame,
+				EditAnywhere,BlueprintReadWrite)
+	bool UseAutoStartUpLoadUserTOCSavedData= true;
+	
 };
 
 // USTRUCT()
@@ -1222,6 +1262,9 @@ public:
 	//virtual AActor* CreateActorFromNode(UWorld* worldContext,UTHsNode* sourceNode,UTHsNode* parent = nullptr);
 	//virtual FTHsNodeLinkWrapper CreateComponentFromNode(UWorld* worldContext,UTHsNode* sourceNode,AActor* ownerActor,UTHsNode* parent = nullptr);
 
+
+	virtual void CloneForestFromLibrary(UTHsNodeLibrary* srcLibrary, UTHsNodeLibrary* dstLibrary);
+	
 	/**
 	 * @brief 런타임용으로 노드 포레스트를 복제합니다.
 	 * @details
@@ -1278,11 +1321,16 @@ class ATHsNodeManager : public AActor
 	GENERATED_BODY()
 ///Script/TIHHousingCore.THsNodeCatalogDataAsset'/Game/NodeTest/NodeCatalogDataAsset0.NodeCatalogDataAsset0'
 protected:
-	void LoadUserSavedData();
 	virtual void BeginPlay() override;
 
+	void CheckUserFirstTOC();
 public:
 	ATHsNodeManager();
+
+	void LoadNodeCatalogDataAsset(const FString& assetPath =
+		TEXT("/Script/TIHHousingCore.THsNodeCatalogDataAsset'/Game/NodeTest/NodeCatalogDataAsset0.NodeCatalogDataAsset0'"));
+	void LoadNodeLibraries();
+	void LoadUserTOCSavedData();
 
 	UTHsNodeCatalogDataAsset* GetNodeCatalogDataAsset() const
 	{
@@ -1300,6 +1348,16 @@ public:
 	UPROPERTY(Category="NodeManager|Events",
 		BlueprintAssignable,BlueprintReadWrite)
 	FTHsNodeManagerOnInputModal OnInputModal;
+	UFUNCTION(Category="NodeManager|Events|InputModal",
+			BlueprintCallable)
+	void OnLoadTOCSelectionModal()
+	{
+		if (DbcReadyToClone())
+		{
+			OnInputModal.Broadcast(this);
+		}
+	}
+
 	
 	UFUNCTION(Category="NodeManager|Events|InputModal",
 		BlueprintCallable)
@@ -1321,7 +1379,22 @@ public:
 	{
 		return IsValid(NodeCatalogDataAsset) && IsValid(SavedTOC);
 	}
-
+	UFUNCTION(Category="NodeManager|DbC",BlueprintCallable)
+	bool DbcIsValidLibraries() const
+	{
+		return WorldNodeLibrary != nullptr && UserNodeLibrary != nullptr;
+	}
+	UFUNCTION(Category="NodeManager|DbC",BlueprintCallable)
+	bool DbcReadyToTocSetUp() const
+	{
+		return IsValid(NodeCatalogDataAsset) && DbcIsValidLibraries();
+	}
+	UFUNCTION(Category="NodeManager|DbC",BlueprintCallable)
+	bool DbcReadyToClone()
+	{
+		return IsValid(SavedTOC) && DbcReadyToTocSetUp();
+	}
+	
 	UFUNCTION(Category="NodeManager|DbC",BlueprintCallable)
 	bool DbcIsLoadComplete() const
 	{
@@ -1337,11 +1410,17 @@ public:
 	UPROPERTY()
 	TObjectPtr<UTHsNodeLibrary> ReservedLibraryAsset = nullptr;
 	
-	UFUNCTION()
-	void CloneForestFromReservedLibrary(UTHsNodeLibrary* srcLibrary, UTHsNodeLibrary* dstLibrary);
-
 	UTHsNodeFactory* GetNodeFactory();
-
+	
+	UFUNCTION(BlueprintCallable)
+	void CloneLibraryFromSaveGame(USaveGame* saveGameData);
+	
+	UObject* FindLinkedObjectByNode(UTHsNode* InNode) const
+	{
+		//	TODO
+		return nullptr;
+	};
+	
 private:
 	/*
 	 *	DbC 검사
