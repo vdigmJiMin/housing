@@ -8,7 +8,7 @@ public class Hss : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "TIHHousingSystem", "TIHHousingCore", "StructUtils", "GameplayTags" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 

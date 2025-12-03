@@ -347,6 +347,7 @@ private:
 	
 public:
 	FTIHHsBBTicketHandle(FTIHHsBBTicket& InTicket)
+	: TicketPackedID(INVALID_PACKED_ID)
 	{
 		if (InTicket.GetSessionID() == INDEX_NONE || InTicket.GetTicketID() == INDEX_NONE)
 		{
@@ -357,6 +358,7 @@ public:
 	}
 	
 	FTIHHsBBTicketHandle(int32 InSessionID, int32 InTicketID)
+	: TicketPackedID(INVALID_PACKED_ID)
 	{
 		if (InSessionID == INDEX_NONE || InTicketID == INDEX_NONE)
 		{
@@ -532,6 +534,12 @@ struct FTIHHsBBSessionData
 
 	UPROPERTY()
 	int32 SessionTickCount;
+
+	FTIHHsBBSessionData()
+		: SessionType(ETIHHsBBSessionCloseType::ETickBase), SessionName(TEXT("DefaultSession")),
+		  SessionTime(0.0f), SessionTickCount(0)
+	{
+	}
 };
 
 

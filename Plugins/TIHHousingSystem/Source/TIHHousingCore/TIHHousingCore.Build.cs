@@ -10,7 +10,16 @@ public class TIHHousingCore : ModuleRules
             new string[]
             {
                 "Core",
-                "GameplayTags"
+                "GameplayTags","GameplayStateTreeModule",
+                "StructUtils",
+                "SQLiteCore","SQLiteSupport", 
+                "InputCore", "EnhancedInput",
+                "Json","JsonUtilities",
+                "AIModule",
+                "MeshModelingToolsExp",
+                "InteractiveToolsFramework",  // 추가
+                "UMG",
+                "UMGEditor",
             }
         );
 
@@ -20,7 +29,7 @@ public class TIHHousingCore : ModuleRules
                 "CoreUObject",
                 "Engine",
                 "Slate",
-                "SlateCore"
+                "SlateCore", 
             }
         );
     }

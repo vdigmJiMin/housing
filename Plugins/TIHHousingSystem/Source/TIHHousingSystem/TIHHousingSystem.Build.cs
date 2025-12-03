@@ -26,6 +26,11 @@ public class TIHHousingSystem : ModuleRules
 			new string[]
 			{
 				"Core",
+				"TIHHousingCore",
+				"StructUtils",
+				"GameplayTags",
+				"InteractiveToolsFramework",  
+				"InputCore",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);

@@ -36,6 +36,7 @@ enum class ETIHHsBlackBoardDataType : uint8
 	EUClass,
 	EUActorComponent,
 	EFVariant,
+	EUScriptStruct,
 	EInvalid,
 	EDefaultMax
 };
@@ -73,6 +74,7 @@ TIHMACRO_Apply_Macro(UObject*, UObject, nullptr)\
 TIHMACRO_Apply_Macro(UClass*, UClass, nullptr)\
 TIHMACRO_Apply_Macro(UActorComponent*, UActorComponent, nullptr)\
 TIHMACRO_Apply_Macro(FVariant,FVariant, FVariant())\
+
 
 #endif// TIHMACRO_BB_XCODE_DATATYPE_LIST
 
